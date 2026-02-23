@@ -40,7 +40,6 @@ models/*.pkl
 *.key
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
