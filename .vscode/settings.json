@@ -1,3 +1,5 @@
 {
-    "github-actions.workflows.pinning.enabled": false
+    "github-actions.workflows.pinning.enabled": false,
+    "github-actions.org-secrets": [],
+    "github-actions.workflows.enabled": false
 }
