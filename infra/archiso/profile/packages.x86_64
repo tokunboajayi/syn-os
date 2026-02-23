@@ -1,0 +1,50 @@
+# Base System
+base
+base-devel
+linux
+linux-firmware
+intel-ucode
+amd-ucode
+efibootmgr
+grub
+os-prober
+networkmanager
+git
+vim
+openssh
+
+# Docker & Container Runtime
+docker
+docker-compose
+containerd
+
+# Xorg & Graphics
+xorg-server
+xorg-xinit
+xorg-xset
+xorg-xrandr
+mesa
+xf86-video-intel
+xf86-video-amdgpu
+xf86-video-nouveau
+xf86-video-vmware
+
+# Audio
+pulseaudio
+pulseaudio-alsa
+
+# Runtime Dependencies
+python
+python-pip
+nodejs
+npm
+chromium # Fallback browser
+ttf-fira-code
+ttf-jetbrains-mono
+ttf-roboto
+noto-fonts-emoji
+
+# Kiosk Utilities
+unclutter # Hide mouse cursor
+xdotool # Simulate input if needed
+plymouth # Boot splash

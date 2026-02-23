@@ -1,0 +1,133 @@
+# Istio Service Mesh Configuration for Syn OS
+# Note: Requires Istio installed in cluster
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: synos-api
+  namespace: synos
+spec:
+  hosts:
+  - synos-api
+  - api.synos.io
+  http:
+  - match:
+    - headers:
+        x-canary:
+          exact: "true"
+    route:
+    - destination:
+        host: synos-api
+        subset: canary
+      weight: 100
+  - route:
+    - destination:
+        host: synos-api
+        subset: stable
+      weight: 100
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+      retryOn: gateway-error,connect-failure,refused-stream
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: synos-api
+  namespace: synos
+spec:
+  host: synos-api
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50
+    loadBalancer:
+      simple: LEAST_REQUEST
+  subsets:
+  - name: stable
+    labels:
+      version: stable
+  - name: canary
+    labels:
+      version: canary
+---
+# ML Service VirtualService with circuit breaking
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: synos-ml
+  namespace: synos
+spec:
+  hosts:
+  - synos-ml
+  http:
+  - route:
+    - destination:
+        host: synos-ml
+      weight: 100
+    timeout: 60s  # ML inference can be slower
+    retries:
+      attempts: 2
+      perTryTimeout: 30s
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: synos-ml
+  namespace: synos
+spec:
+  host: synos-ml
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 50
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 200
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 120s
+      maxEjectionPercent: 30
+---
+# Authorization Policy - mTLS between services
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: synos-mtls
+  namespace: synos
+spec:
+  mtls:
+    mode: STRICT
+---
+# Authorization Policy - API access
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: synos-api-authz
+  namespace: synos
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synos-api
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/synos/sa/synos-ml"
+        - "cluster.local/ns/synos/sa/synos-prometheus"
+        - "cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+  - to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/health", "/metrics"]

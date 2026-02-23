@@ -1,0 +1,176 @@
+# Syn OS Security Configuration - RBAC and Pod Security
+# API Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: synos-api-role
+  namespace: synos
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["synos-secrets", "synos-db-secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["synos-config", "prometheus-config"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: synos-api-binding
+  namespace: synos
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: synos-api-role
+subjects:
+- kind: ServiceAccount
+  name: synos-api
+  namespace: synos
+---
+# ML Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: synos-ml-role
+  namespace: synos
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["synos-secrets", "synos-db-secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: synos-ml-binding
+  namespace: synos
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: synos-ml-role
+subjects:
+- kind: ServiceAccount
+  name: synos-ml
+  namespace: synos
+---
+
+# Network Policy - Default deny
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: synos
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Network Policy - Allow API traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-traffic
+  namespace: synos
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synos-api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: istio-system
+    ports:
+    - protocol: TCP
+      port: 8000
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-prometheus
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-ml
+    ports:
+    - protocol: TCP
+      port: 8001
+    - protocol: TCP
+      port: 50052
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+---
+# Network Policy - Allow ML traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ml-traffic
+  namespace: synos
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synos-ml
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-api
+    ports:
+    - protocol: TCP
+      port: 8001
+    - protocol: TCP
+      port: 50052
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-prometheus
+    ports:
+    - protocol: TCP
+      port: 8001
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: synos-redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53

@@ -1,0 +1,27 @@
+// Syn OS Neural Boot Animation
+
+// Load background
+// bg_image = Image("background.png");
+// background = Sprite(bg_image);
+// background.SetZ(-10);
+
+// Load logo
+logo_image = Image("logo.png");
+logo = Sprite(logo_image);
+
+// Center logo
+Window.SetBackgroundTopColor(0.05, 0.05, 0.05);
+Window.SetBackgroundBottomColor(0.00, 0.00, 0.00);
+
+logo.SetX(Window.GetWidth() / 2 - logo_image.GetWidth() / 2);
+logo.SetY(Window.GetHeight() / 2 - logo_image.GetHeight() / 2);
+
+// Spinner/Pulse Animation
+fun refresh_callback () {
+    // Pulse opacity for "breathing" effect
+    time = Math.Int(Date.GetTime() * 50); 
+    opacity = (Math.Sin(time / 100) + 1) / 2 * 0.5 + 0.5;
+    logo.SetOpacity(opacity);
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);

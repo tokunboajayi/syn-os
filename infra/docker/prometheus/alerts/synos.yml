@@ -1,0 +1,88 @@
+# Syn OS Prometheus Alert Rules
+
+groups:
+  - name: synos_api
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(synos_tasks_failed_total[5m]) / rate(synos_tasks_submitted_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High task failure rate"
+          description: "Task failure rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # API down alert
+      - alert: APIDown
+        expr: up{job="synos-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Syn OS API is down"
+          description: "The API service has been unreachable for more than 1 minute"
+
+      # High latency alert
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(synos_task_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High task latency detected"
+          description: "95th percentile latency is {{ $value }}s"
+
+  - name: synos_ml
+    rules:
+      # ML Service down
+      - alert: MLServiceDown
+        expr: up{job="synos-ml"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ML Service is down"
+          description: "The ML inference service has been unreachable for more than 2 minutes"
+
+  - name: synos_infrastructure
+    rules:
+      # PostgreSQL down
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "The PostgreSQL database is unreachable"
+
+      # Redis down
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is unreachable"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 90%"
+
+      # Disk space alert
+      - alert: LowDiskSpace
+        expr: node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Less than 10% disk space remaining"

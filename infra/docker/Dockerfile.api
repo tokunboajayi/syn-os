@@ -1,0 +1,52 @@
+# Syn OS REST API
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    nmap \
+    masscan \
+    tshark \
+    libcap2-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Grant network capabilities to scanning tools
+RUN setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap && \
+    setcap cap_net_raw,cap_net_admin+eip /usr/bin/masscan
+
+# Install Python dependencies directly (not editable install)
+RUN pip install --no-cache-dir \
+    fastapi>=0.104.0 \
+    uvicorn[standard]>=0.24.0 \
+    pydantic>=2.5.0 \
+    python-multipart>=0.0.6 \
+    httpx>=0.25.0 \
+    prometheus-client>=0.19.0 \
+    python-jose[cryptography]>=3.3.0 \
+    passlib[bcrypt]>=1.7.4 \
+    redis>=5.0.0 \
+    redis>=5.0.0 \
+    loguru>=0.7.0 \
+    python-socketio \
+    psutil
+
+# Copy source code
+# Copy the entire api directory to preserve namespace
+COPY api/ /app/api/
+
+# Create non-root user
+RUN useradd -m -u 1000 synos
+RUN chown -R synos:synos /app
+USER synos
+ENV PYTHONPATH=/app
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "api.synos_api.main:socket_app", "--host", "0.0.0.0", "--port", "8000"]

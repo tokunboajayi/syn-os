@@ -1,0 +1,208 @@
+# Syn OS ML Service - Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synos-ml
+  namespace: synos
+  labels:
+    app.kubernetes.io/name: synos-ml
+    app.kubernetes.io/component: ml
+    app.kubernetes.io/part-of: synos
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synos-ml
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synos-ml
+        app.kubernetes.io/component: ml
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: synos-ml
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+      - name: ml
+        image: synos/ml:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8001
+          protocol: TCP
+        - name: grpc
+          containerPort: 50052
+          protocol: TCP
+        
+        env:
+        - name: MODEL_DIR
+          value: "/app/models"
+        - name: CUDA_VISIBLE_DEVICES
+          value: ""  # CPU mode by default
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: synos-secrets
+              key: redis-url
+        - name: INFLUXDB_URL
+          valueFrom:
+            secretKeyRef:
+              name: synos-secrets
+              key: influxdb-url
+        
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "4000m"
+            memory: "8Gi"
+            # nvidia.com/gpu: "1"  # Uncomment for GPU support
+        
+        volumeMounts:
+        - name: models
+          mountPath: /app/models
+        - name: checkpoints
+          mountPath: /app/checkpoints
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # ML models need write access
+          capabilities:
+            drop:
+            - ALL
+      
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: synos-models
+      - name: checkpoints
+        persistentVolumeClaim:
+          claimName: synos-checkpoints
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synos-ml
+  namespace: synos
+  labels:
+    app.kubernetes.io/name: synos-ml
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 50052
+    targetPort: grpc
+    protocol: TCP
+    name: grpc
+  selector:
+    app.kubernetes.io/name: synos-ml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: synos-ml
+  namespace: synos
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synos-models
+  namespace: synos
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: hostpath
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synos-checkpoints
+  namespace: synos
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: hostpath
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: synos-ml
+  namespace: synos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: synos-ml
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Slower scale-down for ML
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 300
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: synos-ml
+  namespace: synos
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synos-ml

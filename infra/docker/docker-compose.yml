@@ -1,0 +1,200 @@
+# Syn OS Development Environment
+# Full stack: Kernel + ML + API + Monitoring
+
+services:
+  # ============ Core Services ============
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - KERNEL_HOST=kernel
+      - ML_HOST=ml-service
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://synos:synos@postgres:5432/synos
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - synos-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ml-service:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.ml
+    ports:
+      - "8001:8001"
+      - "50052:50052"
+    environment:
+      - MODEL_DIR=/app/models
+      - CUDA_VISIBLE_DEVICES= # Empty = CPU only
+    volumes:
+      - ml-models:/app/models
+    networks:
+      - synos-network
+    restart: unless-stopped
+    # Uncomment below for GPU support (requires nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+    # ============ Data Stores ============
+
+  postgres:
+    image: postgis/postgis:15-3.3-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=synos
+      - POSTGRES_PASSWORD=synos
+      - POSTGRES_DB=synos
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../postgres/init_postgis.sql:/docker-entrypoint-initdb.d/init_postgis.sql:ro
+    networks:
+      - synos-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U synos" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - synos-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=synos
+      - DOCKER_INFLUXDB_INIT_PASSWORD=synos123!
+      - DOCKER_INFLUXDB_INIT_ORG=synos
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=synos-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    networks:
+      - synos-network
+    restart: unless-stopped
+
+  # ============ Monitoring ============
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - synos-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=synos
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+      - influxdb
+    networks:
+      - synos-network
+    restart: unless-stopped
+
+  # ============ Message Queue ============
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=synos
+      - RABBITMQ_DEFAULT_PASS=synos
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - synos-network
+    restart: unless-stopped
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============ Geospatial ============
+
+  tileserver:
+    image: maptiler/tileserver-gl:v4.4.0
+    ports:
+      - "8080:8080"
+    volumes:
+      - tiles-data:/data
+    command: -p 8080
+    networks:
+      - synos-network
+    restart: unless-stopped
+
+# ============ Volumes ============
+
+volumes:
+  postgres-data:
+  redis-data:
+  influxdb-data:
+  prometheus-data:
+  grafana-data:
+  rabbitmq-data:
+  ml-models:
+  tiles-data:
+
+    # ============ Network ============
+
+networks:
+  synos-network:
+    driver: bridge

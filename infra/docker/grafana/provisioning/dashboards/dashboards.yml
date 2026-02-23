@@ -1,0 +1,15 @@
+# Syn OS Grafana Dashboard Provisioning
+
+apiVersion: 1
+
+providers:
+  - name: 'Syn OS'
+    orgId: 1
+    folder: 'Syn OS'
+    folderUid: 'synos'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

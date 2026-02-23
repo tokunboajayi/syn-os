@@ -1,0 +1,49 @@
+# Syn OS ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synos-config
+  namespace: synos
+data:
+  # API Configuration
+  LOG_LEVEL: "info"
+  API_WORKERS: "4"
+  API_TIMEOUT: "30"
+  
+  # ML Configuration
+  ML_BATCH_SIZE: "32"
+  ML_MAX_MODELS: "10"
+  ML_INFERENCE_TIMEOUT: "5"
+  
+  # Feature Flags
+  ENABLE_ONLINE_LEARNING: "true"
+  ENABLE_DRIFT_DETECTION: "true"
+  ENABLE_AB_TESTING: "true"
+  
+  # Monitoring
+  METRICS_ENABLED: "true"
+  TRACING_ENABLED: "true"
+  OTEL_EXPORTER: "jaeger"
+---
+# Syn OS Secrets (template - values should be from sealed secrets or vault)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: synos-secrets
+  namespace: synos
+type: Opaque
+stringData:
+  # Database connections (replace with real values)
+  database-url: "postgresql://synos:synos@synos-postgres:5432/synos"
+  redis-url: "redis://synos-redis:6379"
+  influxdb-url: "http://synos-influxdb:8086"
+  influxdb-token: "synos-token"
+  
+  # RabbitMQ
+  rabbitmq-url: "amqp://synos:synos@synos-rabbitmq:5672"
+  
+  # JWT Secret for API auth
+  jwt-secret: "change-this-in-production-to-random-256-bit-key"
+  
+  # Grafana admin password
+  grafana-admin-password: "synos-secure-password"

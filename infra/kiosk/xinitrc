@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Disable screen blanking and power management
+xset s off
+xset -dpms
+xset s noblank
+
+# Start window manager (none needed for pure kiosk, but helpful for debugging)
+# exec openbox-session &
+
+# Launch Syn OS Kiosk Script
+exec /usr/local/bin/synos-kiosk.sh

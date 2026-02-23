@@ -1,0 +1,246 @@
+# Syn OS Monitoring Stack - Prometheus + Grafana
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synos-prometheus
+  namespace: synos
+  labels:
+    app.kubernetes.io/name: synos-prometheus
+    app.kubernetes.io/component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synos-prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synos-prometheus
+    spec:
+      serviceAccountName: synos-prometheus
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.48.0
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--storage.tsdb.retention.time=30d'
+        - '--web.enable-lifecycle'
+        - '--web.enable-admin-api'
+        ports:
+        - name: http
+          containerPort: 9090
+        
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        - name: storage
+          mountPath: /prometheus
+        
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: storage
+        persistentVolumeClaim:
+          claimName: synos-prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synos-prometheus
+  namespace: synos
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9090
+    targetPort: http
+    name: http
+  selector:
+    app.kubernetes.io/name: synos-prometheus
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: synos-prometheus
+  namespace: synos
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: synos-prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions"]
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: synos-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: synos-prometheus
+subjects:
+- kind: ServiceAccount
+  name: synos-prometheus
+  namespace: synos
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synos-prometheus
+  namespace: synos
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: hostpath
+---
+# Grafana
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synos-grafana
+  namespace: synos
+  labels:
+    app.kubernetes.io/name: synos-grafana
+    app.kubernetes.io/component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synos-grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synos-grafana
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.2
+        ports:
+        - name: http
+          containerPort: 3000
+        
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: synos-secrets
+              key: grafana-admin-password
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_SERVER_ROOT_URL
+          value: "https://grafana.synos.io"
+        
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        
+        volumeMounts:
+        - name: storage
+          mountPath: /var/lib/grafana
+        - name: provisioning
+          mountPath: /etc/grafana/provisioning
+        
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: synos-grafana
+      - name: provisioning
+        configMap:
+          name: grafana-provisioning
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synos-grafana
+  namespace: synos
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: http
+    name: http
+  selector:
+    app.kubernetes.io/name: synos-grafana
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synos-grafana
+  namespace: synos
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: hostpath
