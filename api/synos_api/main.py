@@ -148,6 +148,10 @@ from api.synos_api.routes.geo import router as geo_router
 app.include_router(geo_router)
 from api.synos_api.routes.synapse import router as synapse_router
 app.include_router(synapse_router)
+from api.synos_api.routes.threat_intel import router as threat_intel_router
+app.include_router(threat_intel_router, prefix="/api/v1")
+from api.synos_api.routes.devices import router as devices_router
+app.include_router(devices_router, prefix="/api/v1")
 
 
 # ============ Schemas ============
